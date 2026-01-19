@@ -1,453 +1,482 @@
 """ 
- Jetson Orin Nano – Enhanced Edge AI Personal Assistant 
- Hardware: 
- - Ingcool 7" HDMI 1024x600 Touchscreen 
- - IMX219 Camera 
- - USB Audio Codec (mic) 
- JetPack 6.2.1 | Ubuntu 22.04 | Python 3.10 
- 100% Edge – No Cloud 
- 
- ENHANCED FEATURES:
- - Advanced self-improving AI algorithms
- - Multi-strategy learning (Contextual Bandit + Evolutionary + Meta-Learning)
- - Performance validation and auto-strategy switching
- - Real-time performance tracking
- """ 
- 
- # ===================== Imports ===================== 
- import sys, json, sqlite3, random, threading, time, hashlib
- from datetime import datetime 
- 
- import cv2 
- import mediapipe as mp 
- import numpy as np 
- 
- from PyQt6.QtWidgets import ( 
-     QApplication, QWidget, QVBoxLayout, 
-     QLabel, QPushButton 
- ) 
- from PyQt6.QtCore import Qt, QTimer 
- 
- import vosk, pyaudio, pyttsx3
- 
- # ===================== Configuration ===================== 
- DB_PATH = "user_profiles.db" 
- IMPROVEMENTS_DB = "ai_improvements.db"
- USER_ID = "default_user" 
- CAMERA_INDEX = 0 
- ACTIONS = ["formal", "friendly", "minimal"] 
- 
- # ===================== Advanced Learning Components ===================== 
- class PerformanceTracker:
-     """Tracks AI performance metrics for validation"""
-     def __init__(self):
-         self.metrics = {
-             'total_interactions': 0,
-             'positive_feedback_rate': 0.0,
-             'average_response_time': 0.0,
-             'learning_efficiency': 0.0
-         }
-         self.interaction_history = []
-     
-     def record_interaction(self, context, action, reward, response_time):
-         self.interaction_history.append({
-             'timestamp': datetime.utcnow().isoformat(),
-             'context': context,
-             'action': action,
-             'reward': reward,
-             'response_time': response_time
-         })
-         self.update_metrics()
-     
-     def update_metrics(self):
-         if len(self.interaction_history) > 0:
-             recent = self.interaction_history[-100:]  # Last 100 interactions
-             positive_count = sum(1 for i in recent if i['reward'] > 0)
-             self.metrics['positive_feedback_rate'] = positive_count / len(recent) if recent else 0
-             self.metrics['total_interactions'] = len(self.interaction_history)
-             self.metrics['average_response_time'] = sum(i['response_time'] for i in recent) / len(recent) if recent else 0
-     
-     def get_performance_score(self):
-         """Calculate overall performance score"""
-         return (self.metrics['positive_feedback_rate'] * 0.7 + 
-                (1.0 - min(self.metrics['average_response_time'], 2.0) / 2.0) * 0.3)
- 
- class AdaptiveLearningEngine:
-     """Advanced learning engine with multiple strategies"""
-     def __init__(self):
-         self.strategies = {
-             'contextual_bandit': ContextualBandit(),
-             'evolutionary': EvolutionaryOptimizer(),
-             'meta_learning': MetaLearningSystem()
-         }
-         self.active_strategy = 'contextual_bandit'
-         self.performance_tracker = PerformanceTracker()
-         self.learning_rate = 0.1
-     
-     def select_action(self, context):
-         """Choose action using active learning strategy"""
-         if self.active_strategy == 'contextual_bandit':
-             return self.strategies['contextual_bandit'].select(context)
-         elif self.active_strategy == 'evolutionary':
-             return self.strategies['evolutionary'].select_action(context)
-         else:
-             return self.strategies['meta_learning'].select_action(context)
-     
-     def update(self, context, action, reward, response_time=0.1):
-         """Update all learning strategies"""
-         self.performance_tracker.record_interaction(context, action, reward, response_time)
-         
-         # Update all strategies
-         for strategy in self.strategies.values():
-             if hasattr(strategy, 'update'):
-                 strategy.update(context, action, reward)
-         
-         # Auto-switch strategies based on performance
-         self.auto_switch_strategy()
-     
-     def auto_switch_strategy(self):
-         """Automatically switch to best performing strategy"""
-         current_score = self.performance_tracker.get_performance_score()
-         
-         # Test different strategies periodically
-         if len(self.performance_tracker.interaction_history) % 50 == 0:
-             best_strategy = self.active_strategy
-             best_score = current_score
-             
-             for strategy_name, strategy in self.strategies.items():
-                 if strategy_name != self.active_strategy:
-                     # Simulate performance with limited data
-                     test_score = self.simulate_strategy_performance(strategy_name)
-                     if test_score > best_score:
-                         best_strategy = strategy_name
-                         best_score = test_score
-             
-             if best_strategy != self.active_strategy:
-                 print(f"Switching learning strategy: {self.active_strategy} -> {best_strategy}")
-                 self.active_strategy = best_strategy
-     
-     def simulate_strategy_performance(self, strategy_name):
-         """Simulate performance of a different strategy"""
-         # Use recent history to estimate performance
-         recent = self.performance_tracker.interaction_history[-20:]
-         if not recent:
-             return 0.5
-         
-         # Simple heuristic based on strategy type
-         if strategy_name == 'evolutionary':
-             return self.performance_tracker.metrics['positive_feedback_rate'] * 1.1
-         elif strategy_name == 'meta_learning':
-             return self.performance_tracker.metrics['positive_feedback_rate'] * 0.9
-         return self.performance_tracker.metrics['positive_feedback_rate']
- 
- class EvolutionaryOptimizer:
-     """Evolutionary algorithm for optimizing AI behavior"""
-     def __init__(self):
-         self.population = []
-         self.generation = 0
-         self.mutation_rate = 0.1
-         self.population_size = 20
-         self.initialize_population()
-     
-     def initialize_population(self):
-         """Initialize random population of behavior parameters"""
-         for i in range(self.population_size):
-             individual = {
-                 'id': i,
-                 'parameters': {
-                     'formality_weight': random.random(),
-                     'friendliness_weight': random.random(),
-                     'minimal_weight': random.random()
-                 },
-                 'fitness': 0.0
-             }
-             self.population.append(individual)
-     
-     def select_action(self, context):
-         """Select action based on best individual"""
-         if not self.population:
-             return random.choice(ACTIONS)
-         
-         best_individual = max(self.population, key=lambda x: x['fitness'])
-         params = best_individual['parameters']
-         
-         # Choose action based on evolved weights
-         if params['formality_weight'] > params['friendliness_weight'] and params['formality_weight'] > params['minimal_weight']:
-             return "formal"
-         elif params['friendliness_weight'] > params['minimal_weight']:
-             return "friendly"
-         else:
-             return "minimal"
-     
-     def update(self, context, action, reward):
-         """Update population fitness based on reward"""
-         # Update fitness of current best individual
-         if self.population:
-             best_individual = max(self.population, key=lambda x: x['fitness'])
-             best_individual['fitness'] = best_individual['fitness'] * 0.9 + reward * 0.1
-         
-         # Evolve population periodically
-         if len([i for i in self.population if i['fitness'] > 0]) > 5:
-             self.evolve_population()
-     
-     def evolve_population(self):
-         """Evolve population using selection, crossover, and mutation"""
-         # Sort by fitness
-         self.population.sort(key=lambda x: x['fitness'], reverse=True)
-         
-         # Keep best individuals
-         new_population = self.population[:5]  # Elitism
-         
-         # Generate new individuals through crossover and mutation
-         while len(new_population) < self.population_size:
-             parent1 = random.choice(self.population[:10])  # Select from top
-             parent2 = random.choice(self.population[:10])
-             
-             child = self.crossover(parent1, parent2)
-             child = self.mutate(child)
-             child['id'] = len(new_population)
-             new_population.append(child)
-         
-         self.population = new_population
-         self.generation += 1
-     
-     def crossover(self, parent1, parent2):
-         """Crossover two parents to create offspring"""
-         child = {
-             'parameters': {},
-             'fitness': 0.0
-         }
-         
-         for key in parent1['parameters']:
-             if random.random() < 0.5:
-                 child['parameters'][key] = parent1['parameters'][key]
-             else:
-                 child['parameters'][key] = parent2['parameters'][key]
-         
-         return child
-     
-     def mutate(self, individual):
-         """Mutate individual parameters"""
-         for key in individual['parameters']:
-             if random.random() < self.mutation_rate:
-                 individual['parameters'][key] += random.gauss(0, 0.1)
-                 individual['parameters'][key] = max(0, min(1, individual['parameters'][key]))
-         
-         return individual
- 
- class MetaLearningSystem:
-     """Meta-learning system that learns how to learn"""
-     def __init__(self):
-         self.learning_strategies = {}
-         self.meta_parameters = {
-             'adaptation_rate': 0.1,
-             'memory_window': 50,
-             'exploration_exploitation_balance': 0.5
-         }
-         self.performance_memory = []
-     
-     def select_action(self, context):
-         """Select action using meta-learned patterns"""
-         # Analyze recent performance patterns
-         if len(self.performance_memory) > 10:
-             recent_patterns = self.analyze_patterns()
-             return self.apply_meta_knowledge(context, recent_patterns)
-         
-         # Fallback to random selection with learned biases
-         return self.biased_random_selection(context)
-     
-     def update(self, context, action, reward):
-         """Update meta-learning parameters"""
-         self.performance_memory.append({
-             'context': context,
-             'action': action,
-             'reward': reward,
-             'timestamp': datetime.utcnow().isoformat()
-         })
-         
-         # Keep memory window
-         if len(self.performance_memory) > self.meta_parameters['memory_window']:
-             self.performance_memory.pop(0)
-         
-         # Adapt meta-parameters based on performance
-         self.adapt_meta_parameters()
-     
-     def analyze_patterns(self):
-         """Analyze performance patterns"""
-         patterns = {}
-         for entry in self.performance_memory[-20:]:
-             key = f"{entry['context']}->{entry['action']}"
-             if key not in patterns:
-                 patterns[key] = []
-             patterns[key].append(entry['reward'])
-         
-         # Calculate average performance for each pattern
-         for key in patterns:
-             patterns[key] = sum(patterns[key]) / len(patterns[key])
-         
-         return patterns
-     
-     def apply_meta_knowledge(self, context, patterns):
-         """Apply meta-learned knowledge to select actions"""
-         best_action = None
-         best_score = -float('inf')
-         
-         for action in ACTIONS:
-             key = f"{context}->{action}"
-             score = patterns.get(key, 0.5)  # Default score if no pattern
-             
-             if score > best_score:
-                 best_score = score
-                 best_action = action
-         
-         return best_action if best_action else random.choice(ACTIONS)
-     
-     def biased_random_selection(self, context):
-         """Random selection with learned biases"""
-         # Simple bias based on context similarity
-         if context == "engaged_user":
-             return random.choices(ACTIONS, weights=[0.3, 0.5, 0.2])[0]
-         elif context == "voice_interaction":
-             return random.choices(ACTIONS, weights=[0.2, 0.6, 0.2])[0]
-         else:
-             return random.choices(ACTIONS, weights=[0.4, 0.3, 0.3])[0]
-     
-     def adapt_meta_parameters(self):
-         """Adapt meta-learning parameters based on performance"""
-         if len(self.performance_memory) < 10:
-             return
-         
-         recent_performance = [entry['reward'] for entry in self.performance_memory[-10:]]
-         avg_performance = sum(recent_performance) / len(recent_performance)
-         
-         # Adapt exploration/exploitation balance
-         if avg_performance > 0.7:
-             # Good performance -> exploit more
-             self.meta_parameters['exploration_exploitation_balance'] = min(0.8, 
-                 self.meta_parameters['exploration_exploitation_balance'] + 0.05)
-         elif avg_performance < 0.3:
-             # Poor performance -> explore more
-             self.meta_parameters['exploration_exploitation_balance'] = max(0.2, 
-                 self.meta_parameters['exploration_exploitation_balance'] - 0.05)
- 
- # ===================== Original Classes (Enhanced) ===================== 
- class ContextualBandit: 
-     def __init__(self): 
-         self.q = {} 
-         self.alpha = 0.1 
-         self.epsilon = 0.1 
- 
-     def select(self, context): 
-         self.q.setdefault(context, {a: 0.0 for a in ACTIONS}) 
-         if random.random() < self.epsilon: 
-             return random.choice(ACTIONS) 
-         return max(self.q[context], key=self.q[context].get) 
- 
-     def update(self, context, action, reward): 
-         self.q.setdefault(context, {a: 0.0 for a in ACTIONS}) 
-         self.q[context][action] += self.alpha * ( 
-             reward - self.q[context][action] 
-         ) 
- 
- class Database: 
-     def __init__(self, path): 
-         self.conn = sqlite3.connect(path, check_same_thread=False) 
-         self.conn.execute(""" 
-             CREATE TABLE IF NOT EXISTS users ( 
-                 user_id TEXT PRIMARY KEY, 
-                 profile TEXT 
-             ) 
-         """) 
-         self.conn.commit() 
- 
-     def save(self, user_id, profile): 
-         self.conn.execute( 
-             "REPLACE INTO users VALUES (?, ?)", 
-             (user_id, json.dumps(profile)) 
-         ) 
-         self.conn.commit() 
- 
-     def load(self, user_id): 
-         cur = self.conn.execute( 
-             "SELECT profile FROM users WHERE user_id=?", 
-             (user_id,) 
-         ) 
-         row = cur.fetchone() 
-         return json.loads(row[0]) if row else None 
- 
- class UserProfile: 
-     def __init__(self, user_id): 
-         self.user_id = user_id 
-         self.preferences = {} 
-         self.history = [] 
-         self.last_seen = None 
- 
-     def log(self, context, action, reward): 
-         self.history.append({ 
-             "time": datetime.utcnow().isoformat(), 
-             "context": context, 
-             "action": action, 
-             "reward": reward 
-         }) 
-         self.last_seen = datetime.utcnow().isoformat() 
- 
-     def to_dict(self): 
-         return self.__dict__ 
- 
-     @staticmethod 
-     def from_dict(data): 
-         p = UserProfile(data["user_id"]) 
-         p.__dict__.update(data) 
-         return p 
- 
- class CameraThread(threading.Thread): 
-     def __init__(self): 
-         super().__init__(daemon=True) 
-         self.engaged = False 
-         self.running = True 
-         self.face = mp.solutions.face_detection.FaceDetection(0.5) 
- 
-     def run(self): 
-         cap = cv2.VideoCapture(CAMERA_INDEX) 
-         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640) 
-         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480) 
- 
-         while self.running: 
-             ret, frame = cap.read() 
-             if not ret: 
-                 continue 
-             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) 
-             results = self.face.process(rgb) 
-             self.engaged = bool(results.detections) 
-             time.sleep(0.05) 
- 
-         cap.release() 
- 
- class VoiceRecognizer(threading.Thread): 
-     def __init__(self): 
-         super().__init__(daemon=True) 
-         self.last_text = None 
-         self.model = vosk.Model(lang="en-us") 
-         self.rec = vosk.KaldiRecognizer(self.model, 16000) 
-         self.audio = pyaudio.PyAudio() 
- 
-     def run(self): 
-         stream = self.audio.open( 
-             format=pyaudio.paInt16, 
-             channels=1, 
-             rate=16000, 
-             input=True, 
-             frames_per_buffer=4096 
-         ) 
-         stream.start_stream() 
- 
-         while True: 
-             data = stream.read(4096, exception_on_overflow=False) 
-             if self.rec.AcceptWaveform(data): 
-                 result = json.loads(self.rec.Result()) 
-                 self.last_text = result.get("text") 
- 
- class VoiceSynthesizer:
+Jetson Orin Nano – Enhanced Edge AI Personal Assistant 
+Hardware: 
+- Ingcool 7" HDMI 1024x600 Touchscreen 
+- IMX219 Camera 
+- USB Audio Codec (mic) 
+JetPack 6.2.1 | Ubuntu 22.04 | Python 3.10 
+100% Edge – No Cloud 
+
+ENHANCED FEATURES:
+- Advanced self-improving AI algorithms
+- Multi-strategy learning (Contextual Bandit + Evolutionary + Meta-Learning)
+- Performance validation and auto-strategy switching
+- Real-time performance tracking
+""" 
+
+# ===================== Imports ===================== 
+import sys, json, sqlite3, random, threading, time, hashlib
+from datetime import datetime 
+
+import cv2 
+import mediapipe as mp 
+import numpy as np 
+
+from PyQt6.QtWidgets import ( 
+    QApplication, QWidget, QVBoxLayout, 
+    QLabel, QPushButton 
+) 
+from PyQt6.QtCore import Qt, QTimer 
+
+import vosk, pyaudio, pyttsx3
+try:
+    from duckduckgo_search import DDGS
+    HAS_INTERNET = True
+except ImportError:
+    HAS_INTERNET = False
+
+# ===================== Configuration ===================== 
+DB_PATH = "user_profiles.db" 
+IMPROVEMENTS_DB = "ai_improvements.db"
+USER_ID = "default_user" 
+CAMERA_INDEX = 0 
+ACTIONS = ["formal", "friendly", "minimal"] 
+
+# ===================== Advanced Learning Components ===================== 
+class PerformanceTracker:
+    """Tracks AI performance metrics for validation"""
+    def __init__(self):
+        self.metrics = {
+            'total_interactions': 0,
+            'positive_feedback_rate': 0.0,
+            'average_response_time': 0.0,
+            'learning_efficiency': 0.0
+        }
+        self.interaction_history = []
+    
+    def record_interaction(self, context, action, reward, response_time):
+        self.interaction_history.append({
+            'timestamp': datetime.utcnow().isoformat(),
+            'context': context,
+            'action': action,
+            'reward': reward,
+            'response_time': response_time
+        })
+        self.update_metrics()
+    
+    def update_metrics(self):
+        if len(self.interaction_history) > 0:
+            recent = self.interaction_history[-100:]  # Last 100 interactions
+            positive_count = sum(1 for i in recent if i['reward'] > 0)
+            self.metrics['positive_feedback_rate'] = positive_count / len(recent) if recent else 0
+            self.metrics['total_interactions'] = len(self.interaction_history)
+            self.metrics['average_response_time'] = sum(i['response_time'] for i in recent) / len(recent) if recent else 0
+    
+    def get_performance_score(self):
+        """Calculate overall performance score"""
+        return (self.metrics['positive_feedback_rate'] * 0.7 + 
+               (1.0 - min(self.metrics['average_response_time'], 2.0) / 2.0) * 0.3)
+
+class AdaptiveLearningEngine:
+    """Advanced learning engine with multiple strategies"""
+    def __init__(self):
+        self.strategies = {
+            'contextual_bandit': ContextualBandit(),
+            'evolutionary': EvolutionaryOptimizer(),
+            'meta_learning': MetaLearningSystem()
+        }
+        self.active_strategy = 'contextual_bandit'
+        self.performance_tracker = PerformanceTracker()
+        self.learning_rate = 0.1
+    
+    def select_action(self, context):
+        """Choose action using active learning strategy"""
+        if self.active_strategy == 'contextual_bandit':
+            return self.strategies['contextual_bandit'].select(context)
+        elif self.active_strategy == 'evolutionary':
+            return self.strategies['evolutionary'].select_action(context)
+        else:
+            return self.strategies['meta_learning'].select_action(context)
+    
+    def update(self, context, action, reward, response_time=0.1):
+        """Update all learning strategies"""
+        self.performance_tracker.record_interaction(context, action, reward, response_time)
+        
+        # Update all strategies
+        for strategy in self.strategies.values():
+            if hasattr(strategy, 'update'):
+                strategy.update(context, action, reward)
+        
+        # Auto-switch strategies based on performance
+        self.auto_switch_strategy()
+    
+    def auto_switch_strategy(self):
+        """Automatically switch to best performing strategy"""
+        current_score = self.performance_tracker.get_performance_score()
+        
+        # Test different strategies periodically
+        if len(self.performance_tracker.interaction_history) % 50 == 0:
+            best_strategy = self.active_strategy
+            best_score = current_score
+            
+            for strategy_name, strategy in self.strategies.items():
+                if strategy_name != self.active_strategy:
+                    # Simulate performance with limited data
+                    test_score = self.simulate_strategy_performance(strategy_name)
+                    if test_score > best_score:
+                        best_strategy = strategy_name
+                        best_score = test_score
+            
+            if best_strategy != self.active_strategy:
+                print(f"Switching learning strategy: {self.active_strategy} -> {best_strategy}")
+                self.active_strategy = best_strategy
+    
+    def simulate_strategy_performance(self, strategy_name):
+        """Simulate performance of a different strategy"""
+        # Use recent history to estimate performance
+        recent = self.performance_tracker.interaction_history[-20:]
+        if not recent:
+            return 0.5
+        
+        # Simple heuristic based on strategy type
+        if strategy_name == 'evolutionary':
+            return self.performance_tracker.metrics['positive_feedback_rate'] * 1.1
+        elif strategy_name == 'meta_learning':
+            return self.performance_tracker.metrics['positive_feedback_rate'] * 0.9
+        return self.performance_tracker.metrics['positive_feedback_rate']
+
+class EvolutionaryOptimizer:
+    """Evolutionary algorithm for optimizing AI behavior"""
+    def __init__(self):
+        self.population = []
+        self.generation = 0
+        self.mutation_rate = 0.1
+        self.population_size = 20
+        self.initialize_population()
+    
+    def initialize_population(self):
+        """Initialize random population of behavior parameters"""
+        for i in range(self.population_size):
+            individual = {
+                'id': i,
+                'parameters': {
+                    'formality_weight': random.random(),
+                    'friendliness_weight': random.random(),
+                    'minimal_weight': random.random()
+                },
+                'fitness': 0.0
+            }
+            self.population.append(individual)
+    
+    def select_action(self, context):
+        """Select action based on best individual"""
+        if not self.population:
+            return random.choice(ACTIONS)
+        
+        best_individual = max(self.population, key=lambda x: x['fitness'])
+        params = best_individual['parameters']
+        
+        # Choose action based on evolved weights
+        if params['formality_weight'] > params['friendliness_weight'] and params['formality_weight'] > params['minimal_weight']:
+            return "formal"
+        elif params['friendliness_weight'] > params['minimal_weight']:
+            return "friendly"
+        else:
+            return "minimal"
+    
+    def update(self, context, action, reward):
+        """Update population fitness based on reward"""
+        # Update fitness of current best individual
+        if self.population:
+            best_individual = max(self.population, key=lambda x: x['fitness'])
+            best_individual['fitness'] = best_individual['fitness'] * 0.9 + reward * 0.1
+        
+        # Evolve population periodically
+        if len([i for i in self.population if i['fitness'] > 0]) > 5:
+            self.evolve_population()
+    
+    def evolve_population(self):
+        """Evolve population using selection, crossover, and mutation"""
+        # Sort by fitness
+        self.population.sort(key=lambda x: x['fitness'], reverse=True)
+        
+        # Keep best individuals
+        new_population = self.population[:5]  # Elitism
+        
+        # Generate new individuals through crossover and mutation
+        while len(new_population) < self.population_size:
+            parent1 = random.choice(self.population[:10])  # Select from top
+            parent2 = random.choice(self.population[:10])
+            
+            child = self.crossover(parent1, parent2)
+            child = self.mutate(child)
+            child['id'] = len(new_population)
+            new_population.append(child)
+        
+        self.population = new_population
+        self.generation += 1
+    
+    def crossover(self, parent1, parent2):
+        """Crossover two parents to create offspring"""
+        child = {
+            'parameters': {},
+            'fitness': 0.0
+        }
+        
+        for key in parent1['parameters']:
+            if random.random() < 0.5:
+                child['parameters'][key] = parent1['parameters'][key]
+            else:
+                child['parameters'][key] = parent2['parameters'][key]
+        
+        return child
+    
+    def mutate(self, individual):
+        """Mutate individual parameters"""
+        for key in individual['parameters']:
+            if random.random() < self.mutation_rate:
+                individual['parameters'][key] += random.gauss(0, 0.1)
+                individual['parameters'][key] = max(0, min(1, individual['parameters'][key]))
+        
+        return individual
+
+class MetaLearningSystem:
+    """Meta-learning system that learns how to learn"""
+    def __init__(self):
+        self.learning_strategies = {}
+        self.meta_parameters = {
+            'adaptation_rate': 0.1,
+            'memory_window': 50,
+            'exploration_exploitation_balance': 0.5
+        }
+        self.performance_memory = []
+    
+    def select_action(self, context):
+        """Select action using meta-learned patterns"""
+        # Analyze recent performance patterns
+        if len(self.performance_memory) > 10:
+            recent_patterns = self.analyze_patterns()
+            return self.apply_meta_knowledge(context, recent_patterns)
+        
+        # Fallback to random selection with learned biases
+        return self.biased_random_selection(context)
+    
+    def update(self, context, action, reward):
+        """Update meta-learning parameters"""
+        self.performance_memory.append({
+            'context': context,
+            'action': action,
+            'reward': reward,
+            'timestamp': datetime.utcnow().isoformat()
+        })
+        
+        # Keep memory window
+        if len(self.performance_memory) > self.meta_parameters['memory_window']:
+            self.performance_memory.pop(0)
+        
+        # Adapt meta-parameters based on performance
+        self.adapt_meta_parameters()
+    
+    def analyze_patterns(self):
+        """Analyze performance patterns"""
+        patterns = {}
+        for entry in self.performance_memory[-20:]:
+            key = f"{entry['context']}->{entry['action']}"
+            if key not in patterns:
+                patterns[key] = []
+            patterns[key].append(entry['reward'])
+        
+        # Calculate average performance for each pattern
+        for key in patterns:
+            patterns[key] = sum(patterns[key]) / len(patterns[key])
+        
+        return patterns
+    
+    def apply_meta_knowledge(self, context, patterns):
+        """Apply meta-learned knowledge to select actions"""
+        best_action = None
+        best_score = -float('inf')
+        
+        for action in ACTIONS:
+            key = f"{context}->{action}"
+            score = patterns.get(key, 0.5)  # Default score if no pattern
+            
+            if score > best_score:
+                best_score = score
+                best_action = action
+        
+        return best_action if best_action else random.choice(ACTIONS)
+    
+    def biased_random_selection(self, context):
+        """Random selection with learned biases"""
+        # Simple bias based on context similarity
+        if context == "engaged_user":
+            return random.choices(ACTIONS, weights=[0.3, 0.5, 0.2])[0]
+        elif context == "voice_interaction":
+            return random.choices(ACTIONS, weights=[0.2, 0.6, 0.2])[0]
+        else:
+            return random.choices(ACTIONS, weights=[0.4, 0.3, 0.3])[0]
+    
+    def adapt_meta_parameters(self):
+        """Adapt meta-learning parameters based on performance"""
+        if len(self.performance_memory) < 10:
+            return
+        
+        recent_performance = [entry['reward'] for entry in self.performance_memory[-10:]]
+        avg_performance = sum(recent_performance) / len(recent_performance)
+        
+        # Adapt exploration/exploitation balance
+        if avg_performance > 0.7:
+            # Good performance -> exploit more
+            self.meta_parameters['exploration_exploitation_balance'] = min(0.8, 
+                self.meta_parameters['exploration_exploitation_balance'] + 0.05)
+        elif avg_performance < 0.3:
+            # Poor performance -> explore more
+            self.meta_parameters['exploration_exploitation_balance'] = max(0.2, 
+                self.meta_parameters['exploration_exploitation_balance'] - 0.05)
+
+# ===================== Original Classes (Enhanced) ===================== 
+class ContextualBandit: 
+    def __init__(self): 
+        self.q = {} 
+        self.alpha = 0.1 
+        self.epsilon = 0.1 
+
+    def select(self, context): 
+        self.q.setdefault(context, {a: 0.0 for a in ACTIONS}) 
+        if random.random() < self.epsilon: 
+            return random.choice(ACTIONS) 
+        return max(self.q[context], key=self.q[context].get) 
+
+    def update(self, context, action, reward): 
+        self.q.setdefault(context, {a: 0.0 for a in ACTIONS}) 
+        self.q[context][action] += self.alpha * ( 
+            reward - self.q[context][action] 
+        ) 
+
+class Database: 
+    def __init__(self, path): 
+        self.conn = sqlite3.connect(path, check_same_thread=False) 
+        self.conn.execute(""" 
+            CREATE TABLE IF NOT EXISTS users ( 
+                user_id TEXT PRIMARY KEY, 
+                profile TEXT 
+            ) 
+        """) 
+        self.conn.commit() 
+
+    def save(self, user_id, profile): 
+        self.conn.execute( 
+            "REPLACE INTO users VALUES (?, ?)", 
+            (user_id, json.dumps(profile)) 
+        ) 
+        self.conn.commit() 
+
+    def load(self, user_id): 
+        cur = self.conn.execute( 
+            "SELECT profile FROM users WHERE user_id=?", 
+            (user_id,) 
+        ) 
+        row = cur.fetchone() 
+        return json.loads(row[0]) if row else None 
+
+class UserProfile: 
+    def __init__(self, user_id): 
+        self.user_id = user_id 
+        self.preferences = {} 
+        self.history = [] 
+        self.last_seen = None 
+
+    def log(self, context, action, reward): 
+        self.history.append({ 
+            "time": datetime.utcnow().isoformat(), 
+            "context": context, 
+            "action": action, 
+            "reward": reward 
+        }) 
+        self.last_seen = datetime.utcnow().isoformat() 
+
+    def to_dict(self): 
+        return self.__dict__ 
+
+    @staticmethod 
+    def from_dict(data): 
+        p = UserProfile(data["user_id"]) 
+        p.__dict__.update(data) 
+        return p 
+
+class CameraThread(threading.Thread): 
+    def __init__(self): 
+        super().__init__(daemon=True) 
+        self.engaged = False 
+        self.running = True 
+        self.face = mp.solutions.face_detection.FaceDetection(0.5) 
+
+    def run(self): 
+        cap = cv2.VideoCapture(CAMERA_INDEX) 
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640) 
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480) 
+
+        while self.running: 
+            ret, frame = cap.read() 
+            if not ret: 
+                continue 
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) 
+            results = self.face.process(rgb) 
+            self.engaged = bool(results.detections) 
+            time.sleep(0.05) 
+
+        cap.release() 
+
+class VoiceRecognizer(threading.Thread): 
+    def __init__(self): 
+        super().__init__(daemon=True) 
+        self.last_text = None 
+        self.has_new_command = False
+        self.model = vosk.Model(lang="en-us") 
+        self.rec = vosk.KaldiRecognizer(self.model, 16000) 
+        self.audio = pyaudio.PyAudio() 
+
+    def run(self): 
+        stream = self.audio.open( 
+            format=pyaudio.paInt16, 
+            channels=1, 
+            rate=16000, 
+            input=True, 
+            frames_per_buffer=4096 
+        ) 
+        stream.start_stream() 
+
+        while True: 
+            data = stream.read(4096, exception_on_overflow=False) 
+            if self.rec.AcceptWaveform(data): 
+                result = json.loads(self.rec.Result()) 
+                text = result.get("text", "")
+                if text:
+                    self.last_text = text
+                    self.has_new_command = True
+
+class InternetSearch:
+    """Handles internet queries for math and general knowledge"""
+    def __init__(self):
+        self.ddgs = DDGS() if HAS_INTERNET else None
+
+    def search(self, query):
+        if not self.ddgs:
+            return "Internet search capabilities are not available (missing library)."
+        
+        try:
+            print(f"Searching internet for: {query}")
+            # Use DuckDuckGo to answer the question
+            results = self.ddgs.text(query, max_results=1)
+                
+            if results:
+                return results[0]['body']
+            return "I searched the internet but found no clear answer."
+        except Exception as e:
+            return f"I encountered an error searching the internet: {str(e)}"
+
+class VoiceSynthesizer:
      """Handles Text-to-Speech output via USB Audio Codec"""
      def __init__(self):
          self.engine = pyttsx3.init()
@@ -470,55 +499,58 @@
              self.engine.runAndWait()
          
          threading.Thread(target=_speak, daemon=True).start()
- 
+
  class AssistantUI(QWidget): 
      def __init__(self, feedback_cb): 
          super().__init__() 
          self.setWindowFlags(Qt.WindowType.FramelessWindowHint) 
          self.showFullScreen() 
- 
+
          self.setStyleSheet(""" 
              QLabel { font-size: 28px; } 
              QPushButton { font-size: 24px; height: 80px; } 
          """) 
- 
+
          layout = QVBoxLayout() 
          layout.setContentsMargins(40, 40, 40, 40) 
          layout.setSpacing(20) 
- 
+
          self.label = QLabel("Initializing Enhanced AI Assistant…") 
          self.label.setAlignment(Qt.AlignmentFlag.AlignCenter) 
- 
+
          btn_like = QPushButton("👍 Helpful") 
          btn_dislike = QPushButton("👎 Not Helpful") 
- 
+
          btn_like.clicked.connect(lambda: feedback_cb(1)) 
          btn_dislike.clicked.connect(lambda: feedback_cb(-1)) 
- 
+
          layout.addWidget(self.label, 2) 
          layout.addWidget(btn_like) 
          layout.addWidget(btn_dislike) 
- 
+
          self.setLayout(layout) 
- 
+
      def set_text(self, text): 
          self.label.setText(text) 
- 
+
  # ===================== Main Application ===================== 
  def main(): 
      # Storage 
      db = Database(DB_PATH) 
      stored = db.load(USER_ID) 
      profile = UserProfile.from_dict(stored) if stored else UserProfile(USER_ID) 
- 
+
      # Advanced Learning Engine
-     learning_engine = AdaptiveLearningEngine()
-     context = "startup"
-     current_action = learning_engine.select_action(context)
-     
-     # Start threads
-     camera = CameraThread()
-     voice = VoiceRecognizer()
+    learning_engine = AdaptiveLearningEngine()
+    context = "startup"
+    current_action = learning_engine.select_action(context)
+    
+    # Initialize Internet Search
+    internet_search = InternetSearch()
+    
+    # Start threads
+    camera = CameraThread()
+    voice = VoiceRecognizer()
      tts = VoiceSynthesizer()  # Initialize TTS
      camera.start()
      voice.start()
@@ -550,10 +582,32 @@
              return "idle"
      
      def update_assistant_response():
-         """Update assistant behavior based on learned preferences"""
-         nonlocal context, current_action
-         context = get_context()
-         current_action = learning_engine.select_action(context)
+        """Update assistant behavior based on learned preferences"""
+        nonlocal context, current_action
+        
+        # Handle specific voice commands (Internet Search)
+        if voice.has_new_command:
+            command = voice.last_text.lower()
+            voice.has_new_command = False
+            
+            # Check if it's a question or math request
+            if any(x in command for x in ["what", "who", "when", "where", "how", "calculate", "solve", "define", "search"]):
+                ui.set_text(f"Searching: {command}...")
+                tts.speak("Searching for that...")
+                
+                # Run search (blocking for simplicity)
+                answer = internet_search.search(command)
+                
+                # Display and speak
+                ui.set_text(f"Q: {command}\nA: {answer}")
+                tts.speak(answer)
+                
+                # Log this interaction
+                profile.log("internet_search", "search", 1.0)
+                return
+
+        context = get_context()
+        current_action = learning_engine.select_action(context)
          
          # Get performance metrics
          perf_score = learning_engine.performance_tracker.get_performance_score()
