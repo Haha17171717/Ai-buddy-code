@@ -1,0 +1,59 @@
+1st. File, requirements.txt
+
+opencv-python
+mediapipe
+numpy
+PyQt6
+vosk
+pyaudio
+pyttsx3
+duckduckgo-search
+
+2nd.File, setup_jetson.sh
+
+#!/bin/bash
+
+# Exit on error
+set -e
+
+echo "🚀 Setting up Jetson Orin Nano Assistant Environment..."
+
+# 1. Update and install system dependencies
+echo "📦 Installing system libraries..."
+sudo apt-get update
+sudo apt-get install -y \
+    python3-pip \
+    python3-venv \
+    portaudio19-dev \
+    libespeak1 \
+    ffmpeg \
+    libxcb-cursor0
+
+# 2. Create a virtual environment (optional but recommended)
+if [ ! -d "venv" ]; then
+    echo "🐍 Creating Python virtual environment..."
+    python3 -m venv venv
+fi
+
+# Activate virtual environment
+source venv/bin/activate
+
+# 3. Install Python libraries
+echo "📚 Installing Python dependencies (this may take a while)..."
+pip install --upgrade pip
+pip install -r requirements.txt
+
+# 4. Permissions for USB devices (Camera/Mic)
+echo "🔒 Ensuring user has permissions for video and audio..."
+sudo usermod -aG video $USER
+sudo usermod -aG audio $USER
+
+echo "✅ Setup Complete!"
+echo "To run the assistant:"
+echo "  source venv/bin/activate"
+echo "  python jetson_assistant_enhanced.py"
+
+3rd. Open terminal
+
+chmod +x setup_jetson.sh
+./setup_jetson.sh
